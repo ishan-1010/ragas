@@ -93,13 +93,15 @@ class ResponseRelevancy(MetricWithLLM, MetricWithEmbeddings, SingleTurnMetric):
     question_generation: PydanticPrompt = ResponseRelevancePrompt()
     strictness: int = 3
 
-    def calculate_similarity(self, question: str, generated_questions: list[str]):
+    async def calculate_similarity(self, question: str, generated_questions: list[str]):
         assert self.embeddings is not None, (
             f"Error: '{self.name}' requires embeddings to be set."
         )
-        question_vec = np.asarray(self.embeddings.embed_query(question)).reshape(1, -1)  # type: ignore[attr-defined]
+        question_vec = np.asarray(
+            await self.embeddings.aembed_query(question)  # type: ignore[attr-defined]
+        ).reshape(1, -1)
         gen_question_vec = np.asarray(
-            self.embeddings.embed_documents(generated_questions)  # type: ignore[attr-defined]
+            await self.embeddings.aembed_documents(generated_questions)  # type: ignore[attr-defined]
         ).reshape(len(generated_questions), -1)
         norm = np.linalg.norm(gen_question_vec, axis=1) * np.linalg.norm(
             question_vec, axis=1
@@ -111,7 +113,7 @@ class ResponseRelevancy(MetricWithLLM, MetricWithEmbeddings, SingleTurnMetric):
             / norm
         )
 
-    def _calculate_score(
+    async def _calculate_score(
         self, answers: t.Sequence[ResponseRelevanceOutput], row: t.Dict
     ) -> float:
         question = row["user_input"]
@@ -123,7 +125,7 @@ class ResponseRelevancy(MetricWithLLM, MetricWithEmbeddings, SingleTurnMetric):
             )
             score = np.nan
         else:
-            cosine_sim = self.calculate_similarity(question, gen_questions)
+            cosine_sim = await self.calculate_similarity(question, gen_questions)
             score = cosine_sim.mean() * int(not all_noncommittal)
 
         return score
@@ -143,7 +145,7 @@ class ResponseRelevancy(MetricWithLLM, MetricWithEmbeddings, SingleTurnMetric):
             data=prompt_input, llm=self.llm, callbacks=callbacks, n=self.strictness
         )
 
-        return self._calculate_score(responses, row)
+        return await self._calculate_score(responses, row)
 
 
 class AnswerRelevancy(ResponseRelevancy):
