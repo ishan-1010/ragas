@@ -29,22 +29,22 @@ class _BlockingEmbeddings:
 
 
 @pytest.mark.asyncio
-async def test_calculate_similarity_uses_async_embeddings():
-    """calculate_similarity should call aembed_query/aembed_documents, not the
+async def test_acalculate_similarity_uses_async_embeddings():
+    """acalculate_similarity should call aembed_query/aembed_documents, not the
     sync variants, so it doesn't block the event loop it's awaited on."""
     metric = ResponseRelevancy()
     metric.embeddings = _BlockingEmbeddings()
 
-    sim = await metric.calculate_similarity(
+    sim = await metric.acalculate_similarity(
         "what is the capital of france", ["q1", "q2", "q3"]
     )
     assert sim.shape == (3,)
 
 
 @pytest.mark.asyncio
-async def test_calculate_similarity_does_not_block_event_loop():
+async def test_acalculate_similarity_does_not_block_event_loop():
     """A concurrent task on the same loop should keep making progress while
-    calculate_similarity is awaiting its embedding calls."""
+    acalculate_similarity is awaiting its embedding calls."""
     metric = ResponseRelevancy()
     metric.embeddings = _BlockingEmbeddings()
 
@@ -60,7 +60,7 @@ async def test_calculate_similarity_does_not_block_event_loop():
         0
     )  # let the ticker actually start before we await the blocking call
 
-    await metric.calculate_similarity("question", ["q1", "q2"])
+    await metric.acalculate_similarity("question", ["q1", "q2"])
     ticks_during = ticks["n"]
 
     await ticker_task
@@ -68,13 +68,14 @@ async def test_calculate_similarity_does_not_block_event_loop():
     # 2 embedding calls x 0.2s sleep = 0.4s window, ticker fires every 0.02s,
     # so a responsive loop should log a good chunk of ticks during that window.
     assert ticks_during >= 5, (
-        f"event loop only ticked {ticks_during} times while calculate_similarity "
+        f"event loop only ticked {ticks_during} times while acalculate_similarity "
         "was running, expected it to stay responsive"
     )
 
 
-def test_calculate_similarity_score_unchanged():
-    """The actual cosine-similarity math is unaffected by the async switch."""
+def test_sync_and_async_similarity_agree():
+    """calculate_similarity stays sync for existing callers, and both paths
+    return the same cosine similarities."""
     metric = ResponseRelevancy()
 
     class _SyncFakeEmbeddings:
@@ -92,5 +93,8 @@ def test_calculate_similarity_score_unchanged():
 
     metric.embeddings = _SyncFakeEmbeddings()
 
-    sim = asyncio.run(metric.calculate_similarity("q", ["a", "b"]))
+    sim = metric.calculate_similarity("q", ["a", "b"])
+    assert isinstance(sim, np.ndarray)
     assert np.allclose(sim, [1.0, 1.0])
+    asim = asyncio.run(metric.acalculate_similarity("q", ["a", "b"]))
+    assert np.allclose(asim, sim)
